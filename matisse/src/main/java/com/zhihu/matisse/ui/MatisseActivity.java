@@ -32,6 +32,7 @@ import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 
+import android.provider.MediaStore;
 import android.util.Log;
 import android.view.MenuItem;
 import android.view.View;
@@ -430,7 +431,7 @@ public class MatisseActivity extends AppCompatActivity implements
     @Override
     public void capture() {
         if (mMediaStoreCompat != null) {
-            mMediaStoreCompat.dispatchCaptureIntent(MediaStoreCompat.FileType.Video, this, REQUEST_CODE_CAPTURE);
+            mMediaStoreCompat.dispatchCaptureIntent(mSpec, this, REQUEST_CODE_CAPTURE);
         }
     }
 

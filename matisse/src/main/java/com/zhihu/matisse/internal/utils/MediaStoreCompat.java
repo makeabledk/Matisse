@@ -16,14 +16,19 @@
 package com.zhihu.matisse.internal.utils;
 
 import android.app.Activity;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.IntentSender;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.fragment.app.Fragment;
@@ -31,6 +36,7 @@ import androidx.core.content.FileProvider;
 import androidx.core.os.EnvironmentCompat;
 
 import com.zhihu.matisse.internal.entity.CaptureStrategy;
+import com.zhihu.matisse.internal.entity.SelectionSpec;
 
 import java.io.File;
 import java.io.IOException;
@@ -40,6 +46,9 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
+import kotlin.Unit;
+import kotlin.jvm.functions.Function1;
+
 public class MediaStoreCompat {
 
     public enum FileType {
@@ -47,11 +56,22 @@ public class MediaStoreCompat {
         Video
     }
 
+    public class MediaIntentReceiver extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            Log.d("MediaStoreCompat", intent.toString());
+        }
+    }
+
     private final WeakReference<Activity> mContext;
     private final WeakReference<Fragment> mFragment;
-    private       CaptureStrategy         mCaptureStrategy;
-    private       Uri                     mCurrentCaptureUri;
-    private       String                  mCurrentCapturePath;
+    private CaptureStrategy mCaptureStrategy;
+//    private Uri mCurrentCaptureUri;
+//    private String mCurrentCapturePath;
+    private Uri mCurrentImageCaptureUri;
+    private String mCurrentImageCapturePath;
+    private Uri mCurrentVideoCaptureUri;
+    private String mCurrentVideoCapturePath;
 
     public MediaStoreCompat(Activity activity) {
         mContext = new WeakReference<>(activity);
@@ -78,24 +98,116 @@ public class MediaStoreCompat {
         mCaptureStrategy = strategy;
     }
 
+    BroadcastReceiver mBroadcastReceiver;
+    IntentSender sender;
 
-    public void dispatchCaptureIntent(@NonNull FileType fileType, Context context, int requestCode) {
-        Intent captureIntent = new Intent(fileType == FileType.Image ? MediaStore.ACTION_IMAGE_CAPTURE : MediaStore.ACTION_VIDEO_CAPTURE);
-        if (captureIntent.resolveActivity(context.getPackageManager()) != null) {
-            File captureFile = null;
-            try {
-                captureFile = createFile(fileType == FileType.Image ? FileType.Image : FileType.Video);
-            } catch (IOException e) {
-                e.printStackTrace();
+    private void setupCaptureIntent(Context context, @NonNull Intent captureIntent, @NonNull FileType fileType) {
+        File captureFile = null;
+        try {
+            captureFile = createFile(fileType);
+        } catch (IOException e) { e.printStackTrace(); }
+
+        if (captureFile != null) {
+            Uri mCurrentCaptureUri = null;
+            String mCurrentCapturePath = null;
+
+            switch (fileType) {
+                case Image:
+                    mCurrentImageCapturePath = captureFile.getAbsolutePath();
+                    mCurrentImageCaptureUri = FileProvider.getUriForFile(mContext.get(),
+                            mCaptureStrategy.authority, captureFile);
+
+                    mCurrentCaptureUri = mCurrentImageCaptureUri;
+                    mCurrentCapturePath = mCurrentImageCapturePath;
+                    break;
+                case Video:
+                    mCurrentVideoCapturePath = captureFile.getAbsolutePath();
+                    mCurrentVideoCaptureUri = FileProvider.getUriForFile(mContext.get(),
+                            mCaptureStrategy.authority, captureFile);
+
+                    mCurrentCaptureUri = mCurrentVideoCaptureUri;
+                    mCurrentCapturePath = mCurrentVideoCapturePath;
+                    break;
             }
 
-            if (captureFile != null) {
-                mCurrentCapturePath = captureFile.getAbsolutePath();
-                mCurrentCaptureUri = FileProvider.getUriForFile(mContext.get(),
-                        mCaptureStrategy.authority, captureFile);
-                captureIntent.putExtra(MediaStore.EXTRA_OUTPUT, mCurrentCaptureUri);
-                captureIntent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            captureIntent.putExtra(MediaStore.EXTRA_OUTPUT, mCurrentCaptureUri);
+            captureIntent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+
+            List<ResolveInfo> resInfoList = context.getPackageManager()
+                    .queryIntentActivities(captureIntent, PackageManager.MATCH_DEFAULT_ONLY);
+            for (ResolveInfo resolveInfo : resInfoList) {
+                String packageName = resolveInfo.activityInfo.packageName;
+                context.grantUriPermission(packageName, mCurrentCaptureUri,
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            }
+        }
+    }
+
+    public void dispatchCaptureIntent(@NonNull SelectionSpec spec, Context context, int requestCode) {
+        Intent captureIntent = null;
+        FileType fileType = null;
+        if (spec.onlyShowImages()) {
+            captureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+            fileType = FileType.Image;
+        } else if (spec.onlyShowVideos()) {
+            captureIntent = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
+            fileType = FileType.Video;
+        } else if (!spec.onlyShowGif()) {
+            // Multiple media types supported, open an intent chooser
+            Intent imgIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+            setupCaptureIntent(context, imgIntent, FileType.Image);
+
+            Intent vidIntent = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
+            setupCaptureIntent(context, vidIntent, FileType.Video);
+
+            IntentFilter filter = new IntentFilter(MediaStore.ACTION_IMAGE_CAPTURE);
+            filter.addAction(MediaStore.ACTION_VIDEO_CAPTURE);
+
+            captureIntent = Intent.createChooser(imgIntent, "Capture");
+            captureIntent.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{vidIntent});
+
+            if (mFragment != null) {
+                mFragment.get().startActivityForResult(captureIntent, requestCode);
+            } else {
+                mContext.get().startActivityForResult(captureIntent, requestCode);
+            }
+        }
+
+        if (fileType != null) {
+            if (captureIntent.resolveActivity(context.getPackageManager()) != null) {
+                File captureFile = null;
+                try {
+                    captureFile = createFile(fileType == FileType.Image ? FileType.Image : FileType.Video);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+
+                if (captureFile != null) {
+                    Uri mCurrentCaptureUri = null;
+                    String mCurrentCapturePath = null;
+
+                    switch (fileType) {
+                        case Image:
+                            mCurrentImageCapturePath = captureFile.getAbsolutePath();
+                            mCurrentImageCaptureUri = FileProvider.getUriForFile(mContext.get(),
+                                    mCaptureStrategy.authority, captureFile);
+
+                            mCurrentCaptureUri = mCurrentImageCaptureUri;
+                            mCurrentCapturePath = mCurrentImageCapturePath;
+                            break;
+                        case Video:
+                            mCurrentVideoCapturePath = captureFile.getAbsolutePath();
+                            mCurrentVideoCaptureUri = FileProvider.getUriForFile(mContext.get(),
+                                    mCaptureStrategy.authority, captureFile);
+
+                            mCurrentCaptureUri = mCurrentVideoCaptureUri;
+                            mCurrentCapturePath = mCurrentVideoCapturePath;
+                            break;
+                    }
+
+                    captureIntent.putExtra(MediaStore.EXTRA_OUTPUT, mCurrentCaptureUri);
+                    captureIntent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+
                     List<ResolveInfo> resInfoList = context.getPackageManager()
                             .queryIntentActivities(captureIntent, PackageManager.MATCH_DEFAULT_ONLY);
                     for (ResolveInfo resolveInfo : resInfoList) {
@@ -103,11 +215,11 @@ public class MediaStoreCompat {
                         context.grantUriPermission(packageName, mCurrentCaptureUri,
                                 Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     }
-                }
-                if (mFragment != null) {
-                    mFragment.get().startActivityForResult(captureIntent, requestCode);
-                } else {
-                    mContext.get().startActivityForResult(captureIntent, requestCode);
+                    if (mFragment != null) {
+                        mFragment.get().startActivityForResult(captureIntent, requestCode);
+                    } else {
+                        mContext.get().startActivityForResult(captureIntent, requestCode);
+                    }
                 }
             }
         }
@@ -118,7 +230,7 @@ public class MediaStoreCompat {
         // Create a file name
         String timeStamp =
                 new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
-        String fileFormat = fileType == FileType.Image ? "JPEG_%s.jpg" : "MP4_%s.mp4";
+        String fileFormat = fileType == FileType.Image ? "IMG_%s.jpg" : "VIDEO_%s.mp4";
         String fileName = String.format(fileFormat, timeStamp);
         String environment = fileType == FileType.Image ? Environment.DIRECTORY_PICTURES : Environment.DIRECTORY_MOVIES;
         File storageDir;
@@ -146,10 +258,16 @@ public class MediaStoreCompat {
     }
 
     public Uri getCurrentCaptureUri() {
-        return mCurrentCaptureUri;
+        if (mCurrentImageCapturePath != null && new File(mCurrentImageCapturePath).exists()) {
+            return mCurrentImageCaptureUri;
+        }
+        return mCurrentVideoCaptureUri;
     }
 
     public String getCurrentCapturePath() {
-        return mCurrentCapturePath;
+        if (new File(mCurrentImageCapturePath).exists()) {
+            return mCurrentImageCapturePath;
+        }
+        return mCurrentVideoCapturePath;
     }
 }

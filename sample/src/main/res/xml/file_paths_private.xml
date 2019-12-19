@@ -17,5 +17,9 @@
 <paths>
     <external-path
         name="my_images"
-        path="Android/data/com.zhihu.matisse.sample/files/Pictures"/>
+        path="Pictures"/>
+
+    <external-path
+        name="my_videos"
+        path="Movies"/>
 </paths>

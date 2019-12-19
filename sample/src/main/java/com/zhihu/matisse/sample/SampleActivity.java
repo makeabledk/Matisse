@@ -39,8 +39,10 @@ import com.zhihu.matisse.engine.impl.GlideEngine;
 import com.zhihu.matisse.engine.impl.PicassoEngine;
 import com.zhihu.matisse.filter.Filter;
 import com.zhihu.matisse.internal.entity.CaptureStrategy;
+import com.zhihu.matisse.internal.entity.SelectionSpec;
 
 import java.util.List;
+import java.util.Set;
 
 public class SampleActivity extends AppCompatActivity implements View.OnClickListener {
 
@@ -81,12 +83,15 @@ public class SampleActivity extends AppCompatActivity implements View.OnClickLis
     private void startAction(View v) {
         switch (v.getId()) {
             case R.id.zhihu:
+                Set<MimeType> types = MimeType.ofImage();
+                types.addAll(MimeType.ofVideo());
+
                 Matisse.from(SampleActivity.this)
-                        .choose(MimeType.ofImage(), false)
+                        .choose(types, false)
                         .countable(true)
                         .capture(true)
                         .captureStrategy(
-                                new CaptureStrategy(true, "com.zhihu.matisse.sample.fileprovider", "test"))
+                                new CaptureStrategy(false, "com.zhihu.matisse.sample.fileprovider", "test"))
                         .maxSelectable(9)
                         .addFilter(new GifSizeFilter(320, 320, 5 * Filter.K * Filter.K))
                         .gridExpectedSize(
@@ -105,6 +110,8 @@ public class SampleActivity extends AppCompatActivity implements View.OnClickLis
                             Log.e("isChecked", "onCheck: isChecked=" + isChecked);
                         })
                         .forResult(REQUEST_CODE_CHOOSE);
+
+//                SelectionSpec.getInstance().mediaTypeExclusive = false;
                 break;
             case R.id.dracula:
                 Matisse.from(SampleActivity.this)
@@ -117,6 +124,8 @@ public class SampleActivity extends AppCompatActivity implements View.OnClickLis
                         .maxOriginalSize(10)
                         .imageEngine(new PicassoEngine())
                         .forResult(REQUEST_CODE_CHOOSE);
+
+                SelectionSpec.getInstance().mediaTypeExclusive = false;
                 break;
             case R.id.only_gif:
                 Matisse.from(SampleActivity.this)
