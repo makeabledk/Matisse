@@ -224,8 +224,8 @@ public class MatisseActivity extends AppCompatActivity implements
             }
         } else if (requestCode == REQUEST_CODE_CAPTURE) {
             // Just pass the data back to previous calling Activity.
-            Uri contentUri = mMediaStoreCompat.getCurrentPhotoUri();
-            String path = mMediaStoreCompat.getCurrentPhotoPath();
+            Uri contentUri = mMediaStoreCompat.getCurrentCaptureUri();
+            String path = mMediaStoreCompat.getCurrentCapturePath();
             ArrayList<Uri> selected = new ArrayList<>();
             selected.add(contentUri);
             ArrayList<String> selectedPath = new ArrayList<>();
@@ -430,7 +430,7 @@ public class MatisseActivity extends AppCompatActivity implements
     @Override
     public void capture() {
         if (mMediaStoreCompat != null) {
-            mMediaStoreCompat.dispatchCaptureIntent(this, REQUEST_CODE_CAPTURE);
+            mMediaStoreCompat.dispatchCaptureIntent(MediaStoreCompat.FileType.Video, this, REQUEST_CODE_CAPTURE);
         }
     }
 
